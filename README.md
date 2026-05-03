@@ -31,10 +31,71 @@
 
 ## 🛠️ Technology Stack
 
-* **Frontend:** 
-* **Backend:** 
-* **Infrastructure:** 
-* **AI / ML:** EasyOCR, Hugging Face (BERT), Scikit-learn / XGBoost
+* **Frontend:** Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS, Chart.js / react-chartjs-2, react-dropzone, axios
+* **Backend:** FastAPI, Pydantic v2, Celery + Redis (async task queue), Supabase Python client, python-jose (JWT)
+* **Infrastructure:** Supabase (Postgres + Auth + Row-Level Security), Redis broker, Docker
+* **AI / ML:** EasyOCR (text extraction), Pillow (image preprocessing), Hugging Face Transformers (`facebook/bart-large-mnli` zero-shot categorization), XGBoost (monthly spend forecasting), scikit-learn
+
+## 🚀 Local Setup
+
+### Prerequisites
+
+* Python 3.10+
+* Node.js 18+
+* Redis (`brew install redis` on macOS, then `redis-server`)
+* A Supabase project (URL + anon key + service-role key)
+
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/Nirupama-b/smart-expense-analyzer.git
+cd smart-expense-analyzer
+cp backend/.env.example backend/.env
+# Fill in the Supabase keys and JWT secret in backend/.env
+```
+
+### 2. Apply database migrations
+
+Run the SQL files under `workers/` against your Supabase project, in order:
+
+1. `001_initial_schema.sql`
+2. `002_auto_create_user_profile.sql`
+
+### 3. Start the backend
+
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+### 4. Start the Celery worker (separate terminal)
+
+```bash
+cd backend
+source .venv/bin/activate
+celery -A tasks.celery_app worker --loglevel=info
+```
+
+### 5. Start the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:3000
+```
+
+## 🧪 Running tests
+
+```bash
+cd backend
+pip install pytest pytest-asyncio
+pytest tests/ -v
+```
+
+The suite covers OCR field extraction, the analytics forecast/summary
+endpoints (with mocked Supabase), and the XGBoost forecasting service.
 
 ---
-*Detailed setup, installation, and deployment instructions will be added in subsequent sprints.*
+*See `docs/` for sprint reports and design notes.*

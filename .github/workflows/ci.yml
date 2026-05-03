@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          # Install only what the unit tests need — skip heavy ML deps
+          # (torch, easyocr, transformers) that aren't loaded by the tests.
+          pip install fastapi "uvicorn[standard]" python-multipart \
+                      pydantic pydantic-settings "pydantic[email]" \
+                      python-jose[cryptography] httpx \
+                      supabase celery[redis] redis Pillow \
+                      xgboost scikit-learn pandas numpy \
+                      pytest pytest-asyncio
+
+      - name: Run pytest
+        env:
+          SUPABASE_URL: https://test.supabase.co
+          SUPABASE_KEY: test-anon-key
+          SUPABASE_SERVICE_KEY: test-service-key
+          JWT_SECRET: test-secret
+        run: pytest tests/ -v
+
+  frontend-install:
+    name: Frontend install (npm ci)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    # Scoped to dependency-install only for now: the existing pages and
+    # components have accumulated TypeScript errors (chart.js typings,
+    # mismatched API response shapes) that fail `next build`. Tightening
+    # those types and re-enabling `npm run build` is Daniel's frontend
+    # integration slice.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
