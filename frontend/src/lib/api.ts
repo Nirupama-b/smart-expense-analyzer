@@ -100,7 +100,11 @@ export async function getTaskStatus(taskId: string) {
 
 // --- Analytics --------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// The analytics page passes a single ExpenseFilters object to every
+// helper, so all of these accept `any` for now. Daniel's frontend
+// branch will tighten the shapes once the filter contract is settled.
+
 export async function getAnalyticsSummary(params: any = {}) {
   return request<AnalyticsSummary>('/api/analytics/summary', {
     method: 'GET',
@@ -108,29 +112,27 @@ export async function getAnalyticsSummary(params: any = {}) {
   });
 }
 
-export async function getSpendingOverTime(months = 6) {
+export async function getSpendingOverTime(params: any = {}) {
   return request<SpendingOverTime>('/api/analytics/spending-over-time', {
     method: 'GET',
-    params: { months },
+    params: typeof params === 'number' ? { months: params } : params,
   });
 }
 
-export async function getCategoryBreakdown(params: {
-  start_date?: string;
-  end_date?: string;
-} = {}) {
+export async function getCategoryBreakdown(params: any = {}) {
   return request<CategoryBreakdown>('/api/analytics/category-breakdown', {
     method: 'GET',
     params,
   });
 }
 
-export async function getForecast(months_ahead = 3) {
+export async function getForecast(params: any = {}) {
   return request<Prediction[]>('/api/analytics/forecast', {
     method: 'GET',
-    params: { months_ahead },
+    params: typeof params === 'number' ? { months_ahead: params } : params,
   });
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // --- Natural-language query ------------------------------------------------
 
