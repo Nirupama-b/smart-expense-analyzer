@@ -100,9 +100,8 @@ export async function getTaskStatus(taskId: string) {
 
 // --- Analytics --------------------------------------------------------------
 
-export async function getAnalyticsSummary(
-  params: Record<string, unknown> = {},
-) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getAnalyticsSummary(params: any = {}) {
   return request<AnalyticsSummary>('/api/analytics/summary', {
     method: 'GET',
     params,
