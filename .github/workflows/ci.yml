@@ -28,8 +28,9 @@ jobs:
           python -m pip install --upgrade pip
           # Install only what the unit tests need — skip heavy ML deps
           # (torch, easyocr, transformers) that aren't loaded by the tests.
-          pip install fastapi "uvicorn[standard]" pydantic pydantic-settings \
-                      "pydantic[email]" python-jose[cryptography] httpx \
+          pip install fastapi "uvicorn[standard]" python-multipart \
+                      pydantic pydantic-settings "pydantic[email]" \
+                      python-jose[cryptography] httpx \
                       supabase celery[redis] redis Pillow \
                       xgboost scikit-learn pandas numpy \
                       pytest pytest-asyncio
