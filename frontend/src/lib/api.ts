@@ -100,7 +100,9 @@ export async function getTaskStatus(taskId: string) {
 
 // --- Analytics --------------------------------------------------------------
 
-export async function getAnalyticsSummary(params: { budget?: number } = {}) {
+export async function getAnalyticsSummary(
+  params: Record<string, unknown> = {},
+) {
   return request<AnalyticsSummary>('/api/analytics/summary', {
     method: 'GET',
     params,
