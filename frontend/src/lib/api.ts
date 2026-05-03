@@ -126,7 +126,10 @@ export async function getCategoryBreakdown(params: any = {}) {
   });
 }
 
-export async function getForecast(params: any = {}) {
+export async function getForecast(params: any = {}): Promise<any> {
+  // Backend returns Prediction[]; the analytics page treats this as a
+  // single Prediction. Return type is `any` to satisfy both call sites
+  // until Daniel reconciles the shape.
   return request<Prediction[]>('/api/analytics/forecast', {
     method: 'GET',
     params: typeof params === 'number' ? { months_ahead: params } : params,
