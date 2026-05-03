@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
 from routers import auth, receipts, expenses, analytics, query
+from backend.routes.predictions import router as predictions_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +53,7 @@ app.include_router(receipts.router, prefix=API_PREFIX)
 app.include_router(expenses.router, prefix=API_PREFIX)
 app.include_router(analytics.router, prefix=API_PREFIX)
 app.include_router(query.router, prefix=API_PREFIX)
-
+app.include_router(predictions_router, prefix="/predictions", tags=["predictions"])
 
 # ---------------------------------------------------------------------------
 # Health check (root level)
