@@ -56,7 +56,7 @@ cp backend/.env.example backend/.env
 
 ### 2. Apply database migrations
 
-Run the SQL files under `workers/` against your Supabase project, in order:
+Run the SQL files under `migrations/` against your Supabase project, in order:
 
 1. `001_initial_schema.sql`
 2. `002_auto_create_user_profile.sql`

@@ -4,20 +4,9 @@ NLP categorization service using zero-shot classification (facebook/bart-large-m
 
 import logging
 
-logger = logging.getLogger(__name__)
+from constants.categories import CATEGORIES
 
-CATEGORIES = [
-    "Groceries",
-    "Dining",
-    "Transportation",
-    "Entertainment",
-    "Shopping",
-    "Healthcare",
-    "Utilities",
-    "Travel",
-    "Education",
-    "Other",
-]
+logger = logging.getLogger(__name__)
 
 # The 9 "real" categories sent to the classifier — "Other" is a fallback.
 _CANDIDATE_LABELS = [c for c in CATEGORIES if c != "Other"]

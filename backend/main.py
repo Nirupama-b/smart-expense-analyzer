@@ -6,8 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
-from routers import auth, receipts, expenses, analytics, query
-from backend.routes.predictions import router as predictions_router
+from routers import analytics, auth, expenses, predictions, query, receipts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,11 +34,12 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# CORS
+# CORS — explicit origin list; wildcards are incompatible with credentials.
 # ---------------------------------------------------------------------------
+_settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,11 +53,9 @@ app.include_router(receipts.router, prefix=API_PREFIX)
 app.include_router(expenses.router, prefix=API_PREFIX)
 app.include_router(analytics.router, prefix=API_PREFIX)
 app.include_router(query.router, prefix=API_PREFIX)
-app.include_router(predictions_router, prefix="/predictions", tags=["predictions"])
+app.include_router(predictions.router, prefix=API_PREFIX)
 
-# ---------------------------------------------------------------------------
-# Health check (root level)
-# ---------------------------------------------------------------------------
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}

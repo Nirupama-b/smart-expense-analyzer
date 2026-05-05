@@ -1,7 +1,8 @@
 from functools import lru_cache
+from typing import List
 
-from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
     UPLOAD_DIR: str = "./uploads"
+    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
 
 @lru_cache

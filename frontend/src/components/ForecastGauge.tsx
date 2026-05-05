@@ -58,10 +58,12 @@ export default function ForecastGauge({ forecast, loading }: ForecastGaugeProps)
         <p className="text-3xl font-bold text-gradient">
           ${forecast.predicted_spend.toFixed(2)}
         </p>
-        <p className="text-xs text-slate-500 mt-1">
-          Range: ${forecast.confidence_interval.lower.toFixed(2)} - $
-          {forecast.confidence_interval.upper.toFixed(2)}
-        </p>
+        {forecast.confidence_interval && (
+          <p className="text-xs text-slate-500 mt-1">
+            Range: ${forecast.confidence_interval.lower.toFixed(2)} - $
+            {forecast.confidence_interval.upper.toFixed(2)}
+          </p>
+        )}
       </div>
 
       {/* Burnout Probability */}

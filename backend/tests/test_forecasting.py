@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 import pytest
 import numpy as np
-from backend.services.forecasting import ForecastingService, MIN_EXPENSES_FOR_FORECAST
+from services.forecasting import ForecastingService, MIN_EXPENSES_FOR_FORECAST
 
 def _mock_db(expenses, budget=500.0):
     mock = MagicMock()
