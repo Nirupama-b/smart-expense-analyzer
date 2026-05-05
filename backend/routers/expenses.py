@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import create_client
 
 from config import get_settings
+from constants.categories import CATEGORIES as VALID_CATEGORIES
 from middleware.auth import get_current_user
 from models.schemas import (
     CategoryResponse,
@@ -17,24 +18,6 @@ from models.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
-
-VALID_CATEGORIES = [
-    "Groceries",
-    "Dining",
-    "Transport",
-    "Entertainment",
-    "Utilities",
-    "Healthcare",
-    "Shopping",
-    "Education",
-    "Travel",
-    "Rent",
-    "Insurance",
-    "Subscriptions",
-    "Personal Care",
-    "Gifts & Donations",
-    "Other",
-]
 
 
 def _get_admin_supabase():
@@ -105,29 +88,42 @@ async def list_expenses(
     """List expenses for the authenticated user with optional filters."""
     supabase = _get_admin_supabase()
 
-    query = (
-        supabase.table("expenses")
-        .select("*, categories(name)")
-        .eq("user_id", user_id)
-        .order("date", desc=True)
-    )
-
+    cat_id: Optional[int] = None
     if category:
         cat_id = _resolve_category_id(supabase, category)
+        if cat_id is None:
+            return {"expenses": [], "total": 0}
+
+    def _apply_filters(q):
+        q = q.eq("user_id", user_id)
         if cat_id is not None:
-            query = query.eq("category_id", cat_id)
-        else:
-            return []
+            q = q.eq("category_id", cat_id)
+        if start_date:
+            q = q.gte("date", start_date.isoformat())
+        if end_date:
+            q = q.lte("date", end_date.isoformat())
+        return q
 
-    if start_date:
-        query = query.gte("date", start_date.isoformat())
-    if end_date:
-        query = query.lte("date", end_date.isoformat())
-
-    query = query.range(offset, offset + limit - 1)
-
+    # Total row count (matches the same filters but ignores pagination)
     try:
-        res = query.execute()
+        count_res = _apply_filters(
+            supabase.table("expenses").select("id", count="exact")
+        ).execute()
+        total = count_res.count or 0
+    except Exception as exc:
+        logger.error("Failed to count expenses: %s", exc)
+        total = 0
+
+    # Paginated data
+    try:
+        data_res = (
+            _apply_filters(
+                supabase.table("expenses").select("*, categories(name)")
+            )
+            .order("date", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
     except Exception as exc:
         logger.error("Failed to list expenses: %s", exc)
         raise HTTPException(
@@ -135,8 +131,8 @@ async def list_expenses(
             detail="Failed to retrieve expenses",
         )
 
-    expenses = [_row_to_expense(row) for row in res.data]
-    return {"expenses": expenses, "total": len(expenses)}
+    expenses = [_row_to_expense(row) for row in data_res.data]
+    return {"expenses": expenses, "total": total}
 
 
 # ---------------------------------------------------------------------------

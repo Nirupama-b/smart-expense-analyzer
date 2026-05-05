@@ -216,7 +216,7 @@ export default function AnalyticsPage() {
                       <div>
                         <p className="text-sm text-white font-medium">Top Spending Category</p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          {summary.top_category} accounts for ${summary.top_category_amount.toFixed(2)} of your spending
+                          {summary.top_category ?? 'N/A'} accounts for ${(summary.top_category_amount ?? 0).toFixed(2)} of your spending
                         </p>
                       </div>
                     </div>
@@ -242,7 +242,7 @@ export default function AnalyticsPage() {
                       <div>
                         <p className="text-sm text-white font-medium">Budget Status</p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          You&apos;ve used {summary.budget_utilization.toFixed(0)}% of your monthly budget
+                          You&apos;ve used {(summary.budget_utilization ?? 0).toFixed(0)}% of your monthly budget
                         </p>
                       </div>
                     </div>

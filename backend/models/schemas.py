@@ -100,6 +100,10 @@ class SpendingSummary(BaseModel):
     top_category: Optional[str] = None
     budget_utilization: Optional[float] = None
     expense_count: int = 0
+    transaction_count: int = 0
+    average_daily: float = 0.0
+    top_category_amount: float = 0.0
+    month_over_month_change: float = 0.0
 
 
 class MonthlySpending(BaseModel):

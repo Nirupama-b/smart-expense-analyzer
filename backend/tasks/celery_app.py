@@ -9,13 +9,15 @@ if _backend_dir not in sys.path:
 
 from celery import Celery
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+from config import get_settings
+
+_settings = get_settings()
 
 celery_app = Celery("smart_expense_analyzer")
 
 celery_app.conf.update(
-    broker_url=REDIS_URL,
-    result_backend=REDIS_URL,
+    broker_url=_settings.REDIS_URL,
+    result_backend=_settings.REDIS_URL,
     # Reliability: acknowledge only after task completes successfully
     task_acks_late=True,
     task_reject_on_worker_lost=True,

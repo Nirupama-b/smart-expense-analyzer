@@ -68,11 +68,42 @@ async def spending_summary(
     if budget and budget > 0:
         budget_util = round(total_spend / budget * 100, 2)
 
+    # Average daily spend (divide by days elapsed so far this month)
+    days_elapsed = max(today.day, 1)
+    average_daily = round(total_spend / days_elapsed, 2)
+
+    # Month-over-month change: compare to same-length window last month
+    last_month_end = first_of_month - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+    try:
+        prev_res = (
+            supabase.table("expenses")
+            .select("amount")
+            .eq("user_id", user_id)
+            .gte("date", last_month_start.isoformat())
+            .lte("date", last_month_end.isoformat())
+            .execute()
+        )
+        prev_spend = sum(float(r.get("amount", 0)) for r in (prev_res.data or []))
+    except Exception:
+        prev_spend = 0.0
+
+    if prev_spend > 0:
+        mom_change = round((total_spend - prev_spend) / prev_spend * 100, 1)
+    else:
+        mom_change = 0.0
+
+    top_category_amount = round(cat_totals.get(top_category, 0.0), 2) if top_category else 0.0
+
     return SpendingSummary(
         total_spend=round(total_spend, 2),
         top_category=top_category,
+        top_category_amount=top_category_amount,
         budget_utilization=budget_util,
         expense_count=len(rows),
+        transaction_count=len(rows),
+        average_daily=average_daily,
+        month_over_month_change=mom_change,
     )
 
 
