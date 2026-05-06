@@ -11,6 +11,7 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
+import type { TooltipItem } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { SpendingOverTime } from '@/types';
 
@@ -98,7 +99,7 @@ export default function SpendingChart({ data, loading }: SpendingChartProps) {
         padding: 12,
         displayColors: false,
         callbacks: {
-          label: (context: { parsed: { y: number } }) => `$${context.parsed.y.toFixed(2)}`,
+          label: (context: TooltipItem<'line'>) => `$${(context.parsed.y ?? 0).toFixed(2)}`,
         },
       },
     },
