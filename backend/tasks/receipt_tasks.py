@@ -7,7 +7,15 @@ never deadlocks waiting on its own queue.
 
 import logging
 import os
+import sys
 from typing import Optional
+
+# Ensure the backend root is on sys.path so that top-level packages like
+# `services` and `config` are importable inside forked/spawned worker
+# subprocesses, which do not always inherit the parent's sys.path.
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 # Force CPU-only for transformers/torch in forked Celery workers
 # to prevent SIGABRT crashes from MPS on macOS
@@ -62,16 +70,19 @@ def process_receipt(self, image_path: str, expense_id: str):
     try:
         _update_status(expense_id, "processing")
 
-        # Try to import OCR / NLP — these depend on easyocr, torch, and
-        # transformers which are large optional installs.  If they are absent,
-        # fall back to manual-entry mode so the expense record is still usable.
+        from services.nlp_service import NLPCategorizationService
+        from services.ocr_service import OCRService
+
+        # Verify the heavy ML packages are actually importable.
+        # easyocr and transformers are large optional installs; if missing,
+        # fall back to manual-entry rather than crashing the whole task.
         try:
-            from services.nlp_service import NLPCategorizationService
-            from services.ocr_service import OCRService
+            import easyocr  # noqa: F401
+            import transformers  # noqa: F401
             ocr_available = True
         except ImportError as imp_err:
             logger.warning(
-                "OCR/NLP dependencies not installed (%s); "
+                "OCR/NLP ML packages not installed (%s); "
                 "expense %s will require manual entry.",
                 imp_err,
                 expense_id,
