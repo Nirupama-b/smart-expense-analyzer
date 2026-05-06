@@ -2,9 +2,14 @@ import { request } from './client';
 import type { Category, Expense, ExpenseFilters } from '@/types';
 
 export async function getExpenses(filters: ExpenseFilters = {}) {
+  const { page, limit = 50, ...rest } = filters;
   return request<{ expenses: Expense[]; total: number }>('/api/expenses/', {
     method: 'GET',
-    params: filters,
+    params: {
+      ...rest,
+      limit,
+      ...(page !== undefined ? { offset: (page - 1) * limit } : {}),
+    },
   });
 }
 
