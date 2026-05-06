@@ -48,9 +48,8 @@ export async function getCategoryBreakdown(
 /**
  * Hits the XGBoost-backed `/api/predictions/me` endpoint.
  *
- * Returns null when the backend reports `cold_start: true` (fewer than
- * 10 processed receipts) — `ForecastGauge` already renders a "Need
- * More Data" empty state in that case.
+ * Returns null when the backend reports `cold_start: true` (expenses span
+ * fewer than 2 distinct months).
  */
 export async function getForecast(): Promise<Prediction | null> {
   const raw = await request<PredictionApiResponse>('/api/predictions/me', {

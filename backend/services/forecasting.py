@@ -1,12 +1,15 @@
 from __future__ import annotations
 from datetime import date, datetime
+import logging
 import numpy as np
 import pandas as pd
 from supabase import Client
 from xgboost import XGBRegressor
 
-MIN_EXPENSES_FOR_FORECAST = 10
-DEFAULT_MONTHLY_BUDGET    = 500.0
+logger = logging.getLogger(__name__)
+
+MIN_MONTHS_FOR_FORECAST = 2
+DEFAULT_MONTHLY_BUDGET  = 500.0
 
 class ForecastingService:
 
@@ -15,9 +18,12 @@ class ForecastingService:
 
     def get_prediction_for_user(self, user_id: str) -> dict:
         expenses = self._fetch_expenses(user_id)
-        if len(expenses) < MIN_EXPENSES_FOR_FORECAST:
-            return self._cold_start_response(len(expenses))
-        df      = self._to_dataframe(expenses)
+        if not expenses:
+            return self._cold_start_response(0, 0)
+        df = self._to_dataframe(expenses)
+        distinct_months = df["month"].nunique()
+        if distinct_months < MIN_MONTHS_FOR_FORECAST:
+            return self._cold_start_response(len(expenses), distinct_months)
         monthly = self._aggregate_monthly(df)
         predicted_spend     = self._run_model(monthly)
         budget              = self._fetch_budget(user_id)
@@ -62,9 +68,15 @@ class ForecastingService:
         monthly["lag_1"]     = monthly["total_spend"].shift(1)
         monthly["lag_2"]     = monthly["total_spend"].shift(2)
         monthly["lag_3"]     = monthly["total_spend"].shift(3)
-        monthly["rolling_3"] = monthly["total_spend"].shift(1).rolling(3).mean()
+        # min_periods=1 so rolling never produces NaN when fewer than 3 prior months exist
+        monthly["rolling_3"] = monthly["total_spend"].shift(1).rolling(3, min_periods=1).mean()
         monthly["month_num"] = monthly["month"].apply(lambda p: p.month)
-        return monthly.dropna().reset_index(drop=True)
+        # Fill unavailable lag slots with the expanding mean rather than dropping rows.
+        # dropna() silently removed every row when < 4 months of data existed.
+        expanding_mean = monthly["total_spend"].expanding().mean()
+        for col in ["lag_1", "lag_2", "lag_3"]:
+            monthly[col] = monthly[col].fillna(expanding_mean)
+        return monthly.reset_index(drop=True)
 
     def _run_model(self, monthly: pd.DataFrame) -> float:
         feature_cols = ["lag_1", "lag_2", "lag_3", "rolling_3", "month_num"]
@@ -98,16 +110,22 @@ class ForecastingService:
                 "generated_at":        result["generated_at"],
             }, on_conflict="user_id,month").execute()
         except Exception as exc:
-            print(f"[ForecastingService] upsert failed: {exc}")
+            logger.error("ForecastingService: prediction upsert failed: %s", exc)
 
     @staticmethod
-    def _cold_start_response(expense_count: int) -> dict:
-        needed = MIN_EXPENSES_FOR_FORECAST - expense_count
+    def _cold_start_response(expense_count: int, month_count: int) -> dict:
+        months_needed = max(0, MIN_MONTHS_FOR_FORECAST - month_count)
         return {
-            "cold_start": True, "expense_count": expense_count,
-            "expenses_needed": needed, "predicted_spend": None,
-            "burnout_probability": None, "budget": None,
-            "message": f"Upload and process {needed} more receipt(s) to unlock your forecast.",
+            "cold_start": True,
+            "expense_count": expense_count,
+            "month_count": month_count,
+            "months_needed": months_needed,
+            "predicted_spend": None,
+            "burnout_probability": None,
+            "budget": None,
+            "message": (
+                f"Add expenses from {months_needed} more month(s) to unlock your forecast."
+            ),
         }
 
     @staticmethod
