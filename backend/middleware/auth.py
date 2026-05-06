@@ -1,5 +1,5 @@
 import logging
-from functools import lru_cache
+import time
 from typing import Optional
 
 import httpx
@@ -14,19 +14,28 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 
+_JWKS_TTL = 3600.0  # re-fetch public keys at most once per hour
+_jwks_cache: dict = {}
+_jwks_cache_at: float = 0.0
 
-@lru_cache(maxsize=1)
+
 def _fetch_jwks(supabase_url: str) -> dict:
-    """Fetch the JWKS (JSON Web Key Set) from the Supabase project.
+    """Return the JWKS from Supabase, using a 1-hour in-process cache.
 
-    Supabase exposes its public keys at /auth/v1/.well-known/jwks.json
-    which we use to verify ES256-signed JWTs.
+    A bounded TTL ensures that a key rotation is picked up within an hour
+    without requiring a server restart (the old lru_cache held keys forever).
     """
+    global _jwks_cache, _jwks_cache_at
+    now = time.monotonic()
+    if _jwks_cache and (now - _jwks_cache_at) < _JWKS_TTL:
+        return _jwks_cache
     jwks_url = f"{supabase_url}/auth/v1/.well-known/jwks.json"
     logger.info("Auth: fetching JWKS from %s", jwks_url)
     resp = httpx.get(jwks_url, timeout=10)
     resp.raise_for_status()
-    return resp.json()
+    _jwks_cache = resp.json()
+    _jwks_cache_at = now
+    return _jwks_cache
 
 
 def _get_signing_key(token: str, supabase_url: str):
