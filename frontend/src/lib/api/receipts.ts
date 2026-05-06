@@ -9,7 +9,8 @@ export async function uploadReceipt(file: File) {
     {
       method: 'POST',
       data: form,
-      headers: { 'Content-Type': 'multipart/form-data' },
+      // Do NOT set Content-Type manually — axios must auto-set it with the
+      // correct multipart boundary, otherwise the backend cannot parse the body.
     },
   );
 }

@@ -26,10 +26,23 @@ export async function request<T>(
   config: AxiosRequestConfig = {},
 ): Promise<T> {
   const headers = { ...(config.headers ?? {}), ...(await authHeaders()) };
-  const res = await axios.request<T>({
-    url: `${API_URL}${path}`,
-    ...config,
-    headers,
-  });
-  return res.data;
+  try {
+    const res = await axios.request<T>({
+      url: `${API_URL}${path}`,
+      ...config,
+      headers,
+    });
+    return res.data;
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err)) {
+      if (!err.response) {
+        throw new Error(
+          `Cannot reach the backend at ${API_URL}. Make sure the server is running.`,
+        );
+      }
+      const detail = (err.response.data as { detail?: string })?.detail;
+      throw new Error(detail ?? `Request failed (${err.response.status})`);
+    }
+    throw err;
+  }
 }
