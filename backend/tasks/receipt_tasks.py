@@ -7,7 +7,15 @@ never deadlocks waiting on its own queue.
 
 import logging
 import os
+import sys
 from typing import Optional
+
+# Ensure the backend root is on sys.path so that top-level packages like
+# `services` and `config` are importable inside forked/spawned worker
+# subprocesses, which do not always inherit the parent's sys.path.
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 # Force CPU-only for transformers/torch in forked Celery workers
 # to prevent SIGABRT crashes from MPS on macOS
@@ -60,56 +68,93 @@ def process_receipt(self, image_path: str, expense_id: str):
     to avoid deadlocks from blocking on sub-task results.
     """
     try:
+        _update_status(expense_id, "processing")
+
         from services.nlp_service import NLPCategorizationService
         from services.ocr_service import OCRService
 
-        # Mark as processing for the entire pipeline
-        _update_status(expense_id, "processing")
-
-        # Stage 1 — Image pre-processing
-        processed_path = OCRService.preprocess_image(image_path)
-
-        # Stage 2 — OCR text extraction
-        text = OCRService.extract_text(processed_path)
-        if not text or not text.strip():
-            text = "Manual Entry Required"
-
-        # Stage 3 — NLP categorization + field extraction
-        category, confidence = NLPCategorizationService.categorize(text)
-        amount = OCRService.extract_amount(text)
-        merchant = OCRService.extract_merchant(text)
-
-        final_status = "processed" if confidence >= 0.5 else "manual_review"
-
-        # Look up category_id from categories table
-        category_id = None
+        # Verify the heavy ML packages are actually importable.
+        # easyocr and transformers are large optional installs; if missing,
+        # fall back to manual-entry rather than crashing the whole task.
         try:
-            cat_result = _get_supabase().table("categories").select("id").eq("name", category).execute()
-            if cat_result.data:
-                category_id = cat_result.data[0]["id"]
-        except Exception:
-            logger.warning("Could not look up category_id for %s", category)
+            import easyocr  # noqa: F401
+            import transformers  # noqa: F401
+            ocr_available = True
+        except ImportError as imp_err:
+            logger.warning(
+                "OCR/NLP ML packages not installed (%s); "
+                "expense %s will require manual entry.",
+                imp_err,
+                expense_id,
+            )
+            ocr_available = False
 
-        update_fields = {
-            "raw_text": text,
-        }
-        if category_id is not None:
-            update_fields["category_id"] = category_id
-        if amount is not None:
-            update_fields["amount"] = amount
-        if merchant:
-            update_fields["merchant"] = merchant
+        if ocr_available:
+            # Stage 1 — Image pre-processing
+            processed_path = OCRService.preprocess_image(image_path)
 
-        _update_status(expense_id, final_status, extra=update_fields)
+            # Stage 2 — OCR text extraction
+            text = OCRService.extract_text(processed_path)
+            if not text or not text.strip():
+                text = "Manual Entry Required"
 
-        return {
-            "expense_id": expense_id,
-            "category": category,
-            "confidence": confidence,
-            "amount": amount,
-            "merchant": merchant,
-            "status": final_status,
-        }
+            # Stage 3 — NLP categorization + field extraction
+            category, confidence = NLPCategorizationService.categorize(text)
+            amount = OCRService.extract_amount(text)
+            merchant = OCRService.extract_merchant(text)
+
+            final_status = "processed" if confidence >= 0.5 else "manual_review"
+
+            # Look up category_id from categories table
+            category_id = None
+            try:
+                cat_result = (
+                    _get_supabase()
+                    .table("categories")
+                    .select("id")
+                    .eq("name", category)
+                    .execute()
+                )
+                if cat_result.data:
+                    category_id = cat_result.data[0]["id"]
+            except Exception:
+                logger.warning("Could not look up category_id for %s", category)
+
+            update_fields: dict = {"raw_text": text}
+            if category_id is not None:
+                update_fields["category_id"] = category_id
+            if amount is not None:
+                update_fields["amount"] = amount
+            if merchant:
+                update_fields["merchant"] = merchant
+
+            _update_status(expense_id, final_status, extra=update_fields)
+
+            return {
+                "expense_id": expense_id,
+                "category": category,
+                "confidence": confidence,
+                "amount": amount,
+                "merchant": merchant,
+                "status": final_status,
+            }
+        else:
+            # OCR unavailable — mark for manual entry so the user can fill
+            # in details themselves rather than seeing a silent failure.
+            _update_status(
+                expense_id,
+                "manual_review",
+                extra={"raw_text": "OCR unavailable — please enter details manually"},
+            )
+            return {
+                "expense_id": expense_id,
+                "category": None,
+                "confidence": 0.0,
+                "amount": None,
+                "merchant": None,
+                "status": "manual_review",
+            }
+
     except Exception as exc:
         logger.exception("process_receipt failed for expense %s", expense_id)
         _update_status(expense_id, "failed")
