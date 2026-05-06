@@ -17,11 +17,6 @@ _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-# Force CPU-only for transformers/torch in forked Celery workers
-# to prevent SIGABRT crashes from MPS on macOS
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
-os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
 
 from .celery_app import celery_app
 
@@ -73,16 +68,14 @@ def process_receipt(self, image_path: str, expense_id: str):
         from services.nlp_service import NLPCategorizationService
         from services.ocr_service import OCRService
 
-        # Verify the heavy ML packages are actually importable.
-        # easyocr and transformers are large optional installs; if missing,
-        # fall back to manual-entry rather than crashing the whole task.
+        # Verify OCR packages are importable; fall back to manual-entry if not.
         try:
-            import easyocr  # noqa: F401
+            import pytesseract  # noqa: F401
             import transformers  # noqa: F401
             ocr_available = True
         except ImportError as imp_err:
             logger.warning(
-                "OCR/NLP ML packages not installed (%s); "
+                "OCR/NLP packages not installed (%s); "
                 "expense %s will require manual entry.",
                 imp_err,
                 expense_id,
