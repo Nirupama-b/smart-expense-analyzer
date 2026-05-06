@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { uploadReceipt, getTaskStatus } from '@/lib/api';
 import { TaskStatus } from '@/types';
@@ -22,12 +22,22 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
   const [currentStage, setCurrentStage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null);
+  const abortRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current = true;
+    };
+  }, []);
 
   const pollTaskStatus = useCallback(async (taskId: string) => {
+    abortRef.current = false;
     const maxAttempts = 60;
     let attempts = 0;
 
     const poll = async () => {
+      if (abortRef.current) return;
+
       if (attempts >= maxAttempts) {
         setError('Processing timed out. Please try again.');
         setIsUploading(false);
@@ -36,6 +46,8 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
 
       try {
         const status = await getTaskStatus(taskId);
+        if (abortRef.current) return;
+
         setTaskStatus(status);
 
         if (status.status === 'processing') {
@@ -45,6 +57,7 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
         if (status.status === 'completed') {
           setCurrentStage(4);
           setTimeout(() => {
+            if (abortRef.current) return;
             setIsUploading(false);
             setCurrentStage(0);
             setTaskStatus(null);
@@ -60,10 +73,10 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
         }
 
         attempts++;
-        setTimeout(poll, 2000);
+        if (!abortRef.current) setTimeout(poll, 2000);
       } catch {
         attempts++;
-        setTimeout(poll, 3000);
+        if (!abortRef.current) setTimeout(poll, 3000);
       }
     };
 
