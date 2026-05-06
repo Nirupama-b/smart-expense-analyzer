@@ -75,7 +75,7 @@ uvicorn main:app --reload --port 8000
 ```bash
 cd backend
 source .venv/bin/activate
-celery -A tasks.celery_app worker --loglevel=info
+OMP_NUM_THREADS=1 celery -A tasks.celery_app worker --pool=solo --loglevel=info
 ```
 
 ### 5. Start the frontend
