@@ -21,7 +21,7 @@ export interface Expense {
   category: string;
   date: string;
   receipt_url?: string;
-  status: 'pending' | 'processed' | 'verified' | 'error';
+  status: 'pending' | 'processing' | 'processed' | 'verified' | 'error';
   confidence_score?: number;
   created_at: string;
   updated_at: string;
