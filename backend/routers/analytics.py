@@ -26,6 +26,9 @@ def _get_admin_supabase():
 @router.get("/summary", response_model=SpendingSummary)
 async def spending_summary(
     budget: Optional[float] = Query(None, description="Monthly budget for utilization calc"),
+    start_date: Optional[date] = Query(None, description="Filter expenses from this date"),
+    end_date: Optional[date] = Query(None, description="Filter expenses until this date"),
+    category: Optional[str] = Query(None, description="Filter by category name"),
     user_id: str = Depends(get_current_user),
 ):
     """Total spend, top category, and budget utilization for the current month."""
@@ -34,15 +37,38 @@ async def spending_summary(
     today = date.today()
     first_of_month = today.replace(day=1)
 
+    # Use provided dates or fall back to current month
+    s_date = start_date or first_of_month
+    e_date = end_date or today
+
+    # Resolve category_id if a category filter was provided
+    cat_id = None
+    if category:
+        try:
+            cat_res = (
+                supabase.table("categories")
+                .select("id")
+                .eq("name", category)
+                .limit(1)
+                .execute()
+            )
+            if cat_res.data:
+                cat_id = cat_res.data[0]["id"]
+        except Exception:
+            pass
+
+    # Primary query: expenses within the date range
     try:
-        res = (
+        q = (
             supabase.table("expenses")
             .select("amount, category_id, categories(name)")
             .eq("user_id", user_id)
-            .gte("date", first_of_month.isoformat())
-            .lte("date", today.isoformat())
-            .execute()
+            .gte("date", s_date.isoformat())
+            .lte("date", e_date.isoformat())
         )
+        if cat_id is not None:
+            q = q.eq("category_id", cat_id)
+        res = q.execute()
     except Exception as exc:
         logger.error("Summary query failed: %s", exc)
         raise HTTPException(
@@ -50,7 +76,25 @@ async def spending_summary(
             detail="Failed to compute spending summary",
         )
 
-    rows = res.data or []
+    rows = list(res.data or [])
+
+    # Also include expenses with NULL date (just uploaded, OCR not done yet)
+    # so the dashboard Total Spend is never 0 after uploading.
+    try:
+        null_res = (
+            supabase.table("expenses")
+            .select("amount, category_id, categories(name)")
+            .eq("user_id", user_id)
+            .is_("date", "null")
+            .execute()
+        )
+        existing_ids = {r.get("id") for r in rows if r.get("id")}
+        for r in (null_res.data or []):
+            if r.get("id") not in existing_ids:
+                rows.append(r)
+    except Exception:
+        pass
+
     total_spend = sum(float(r.get("amount", 0)) for r in rows)
 
     # Determine top category
@@ -113,23 +157,47 @@ async def spending_summary(
 @router.get("/spending-over-time", response_model=list[MonthlySpending])
 async def spending_over_time(
     months: int = Query(6, ge=1, le=24, description="Number of past months"),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    category: Optional[str] = Query(None),
     user_id: str = Depends(get_current_user),
 ):
     """Monthly spending totals for the past N months."""
     supabase = _get_admin_supabase()
 
     today = date.today()
-    start_date = (today.replace(day=1) - timedelta(days=(months - 1) * 30)).replace(day=1)
+    s_date = start_date or (today.replace(day=1) - timedelta(days=(months - 1) * 30)).replace(day=1)
+    e_date = end_date or today
+
+    # Resolve category_id if filter given
+    cat_id = None
+    if category:
+        try:
+            cat_res = (
+                supabase.table("categories")
+                .select("id")
+                .eq("name", category)
+                .limit(1)
+                .execute()
+            )
+            if cat_res.data:
+                cat_id = cat_res.data[0]["id"]
+            else:
+                return _empty_months(s_date, e_date)
+        except Exception:
+            pass
 
     try:
-        res = (
+        q = (
             supabase.table("expenses")
             .select("amount, date")
             .eq("user_id", user_id)
-            .gte("date", start_date.isoformat())
-            .lte("date", today.isoformat())
-            .execute()
+            .gte("date", s_date.isoformat())
+            .lte("date", e_date.isoformat())
         )
+        if cat_id is not None:
+            q = q.eq("category_id", cat_id)
+        res = q.execute()
     except Exception as exc:
         logger.error("Spending-over-time query failed: %s", exc)
         raise HTTPException(
@@ -145,16 +213,28 @@ async def spending_over_time(
 
     # Fill in missing months with zero
     result: list[MonthlySpending] = []
-    cursor = start_date
-    while cursor <= today:
+    cursor = s_date
+    while cursor <= e_date:
         key = cursor.strftime("%Y-%m")
         result.append(MonthlySpending(month=key, total=round(monthly.get(key, 0), 2)))
-        # Advance to next month
         if cursor.month == 12:
             cursor = cursor.replace(year=cursor.year + 1, month=1)
         else:
             cursor = cursor.replace(month=cursor.month + 1)
 
+    return result
+
+
+def _empty_months(s_date: date, e_date: date) -> list[MonthlySpending]:
+    """Return zeroed MonthlySpending entries for a date range."""
+    result = []
+    cursor = s_date
+    while cursor <= e_date:
+        result.append(MonthlySpending(month=cursor.strftime("%Y-%m"), total=0.0))
+        if cursor.month == 12:
+            cursor = cursor.replace(year=cursor.year + 1, month=1)
+        else:
+            cursor = cursor.replace(month=cursor.month + 1)
     return result
 
 
@@ -165,6 +245,7 @@ async def spending_over_time(
 async def category_breakdown(
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
+    category: Optional[str] = Query(None),
     user_id: str = Depends(get_current_user),
 ):
     """Spending by category with amounts and percentages."""
@@ -174,15 +255,32 @@ async def category_breakdown(
     s_date = start_date or today.replace(day=1)
     e_date = end_date or today
 
+    cat_id = None
+    if category:
+        try:
+            cat_res = (
+                supabase.table("categories")
+                .select("id")
+                .eq("name", category)
+                .limit(1)
+                .execute()
+            )
+            if cat_res.data:
+                cat_id = cat_res.data[0]["id"]
+        except Exception:
+            pass
+
     try:
-        res = (
+        q = (
             supabase.table("expenses")
             .select("amount, categories(name)")
             .eq("user_id", user_id)
             .gte("date", s_date.isoformat())
             .lte("date", e_date.isoformat())
-            .execute()
         )
+        if cat_id is not None:
+            q = q.eq("category_id", cat_id)
+        res = q.execute()
     except Exception as exc:
         logger.error("Category breakdown query failed: %s", exc)
         raise HTTPException(
@@ -221,14 +319,14 @@ async def forecast(
     supabase = _get_admin_supabase()
 
     today = date.today()
-    lookback_start = (today.replace(day=1) - timedelta(days=180)).replace(day=1)
+    history_start = (today.replace(day=1) - timedelta(days=365)).replace(day=1)
 
     try:
         res = (
             supabase.table("expenses")
             .select("amount, date")
             .eq("user_id", user_id)
-            .gte("date", lookback_start.isoformat())
+            .gte("date", history_start.isoformat())
             .lte("date", today.isoformat())
             .execute()
         )
@@ -236,59 +334,56 @@ async def forecast(
         logger.error("Forecast query failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate forecast",
+            detail="Failed to compute forecast",
         )
 
     monthly: dict[str, float] = defaultdict(float)
     for r in res.data or []:
         if r.get("date"):
-            month_key = r["date"][:7]
-            monthly[month_key] += float(r.get("amount", 0))
+            monthly[r["date"][:7]] += float(r.get("amount", 0))
 
     if not monthly:
-        # No data - return zeros
-        predictions = []
+        result = []
         cursor = today
         for _ in range(months_ahead):
             if cursor.month == 12:
                 cursor = cursor.replace(year=cursor.year + 1, month=1)
             else:
                 cursor = cursor.replace(month=cursor.month + 1)
-            predictions.append(
-                PredictionResponse(month=cursor.strftime("%Y-%m"), predicted_spend=0)
-            )
-        return predictions
+            result.append(PredictionResponse(
+                month=cursor.strftime("%Y-%m"),
+                predicted_spend=0.0,
+            ))
+        return result
 
-    # Build ordered series
     sorted_months = sorted(monthly.keys())
-    values = [monthly[m] for m in sorted_months]
+    n = len(sorted_months)
+    x_vals = list(range(n))
+    y_vals = [monthly[m] for m in sorted_months]
 
-    # Linear regression (y = mx + b)
-    n = len(values)
-    if n == 1:
-        slope = 0
-        intercept = values[0]
-    else:
-        x_vals = list(range(n))
-        x_mean = sum(x_vals) / n
-        y_mean = sum(values) / n
-        numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_vals, values))
-        denominator = sum((x - x_mean) ** 2 for x in x_vals)
-        slope = numerator / denominator if denominator else 0
-        intercept = y_mean - slope * x_mean
+    x_mean = sum(x_vals) / n
+    y_mean = sum(y_vals) / n
 
-    # Predict future months
-    predictions: list[PredictionResponse] = []
-    last_month = datetime.strptime(sorted_months[-1], "%Y-%m")
+    numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_vals, y_vals))
+    denominator = sum((x - x_mean) ** 2 for x in x_vals)
+    slope = numerator / denominator if denominator != 0 else 0
+    intercept = y_mean - slope * x_mean
+
+    result = []
+    last_month_str = sorted_months[-1]
+    last_year, last_month_num = int(last_month_str[:4]), int(last_month_str[5:7])
+    cursor_date = date(last_year, last_month_num, 1)
+
     for i in range(1, months_ahead + 1):
-        x_future = n - 1 + i
-        predicted = max(slope * x_future + intercept, 0)
-        future_month = last_month.month + i
-        future_year = last_month.year + (future_month - 1) // 12
-        future_month = ((future_month - 1) % 12) + 1
-        month_str = f"{future_year}-{future_month:02d}"
-        predictions.append(
-            PredictionResponse(month=month_str, predicted_spend=round(predicted, 2))
-        )
+        if cursor_date.month == 12:
+            cursor_date = cursor_date.replace(year=cursor_date.year + 1, month=1)
+        else:
+            cursor_date = cursor_date.replace(month=cursor_date.month + 1)
 
-    return predictions
+        predicted = max(0.0, intercept + slope * (n - 1 + i))
+        result.append(PredictionResponse(
+            month=cursor_date.strftime("%Y-%m"),
+            predicted_spend=round(predicted, 2),
+        ))
+
+    return result

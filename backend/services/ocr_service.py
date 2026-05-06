@@ -1,10 +1,11 @@
 """
-OCR service built on Tesseract (via pytesseract) with Pillow-based image pre-processing.
-Replaces EasyOCR to avoid PyTorch SIGSEGV on macOS arm64.
+OCR service built on EasyOCR with Pillow-based image pre-processing.
 """
 
+import os
 import re
 import logging
+import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +14,18 @@ logger = logging.getLogger(__name__)
 
 class OCRService:
     """Receipt OCR: image enhancement, text extraction, and field parsing."""
+
+    # Lazy class-level singleton — created once per process
+    _reader = None
+
+    @classmethod
+    def _get_reader(cls):
+        """Return a lazily-initialised EasyOCR reader."""
+        if cls._reader is None:
+            import easyocr
+
+            cls._reader = easyocr.Reader(["en"], gpu=False)
+        return cls._reader
 
     # ------------------------------------------------------------------
     # Image pre-processing
@@ -28,10 +41,18 @@ class OCRService:
         from PIL import Image, ImageEnhance, ImageFilter
 
         img = Image.open(image_path)
+
+        # Convert to grayscale
         img = img.convert("L")
-        img = ImageEnhance.Contrast(img).enhance(1.5)
+
+        # Boost contrast
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.5)
+
+        # Sharpen
         img = img.filter(ImageFilter.SHARPEN)
 
+        # Save alongside the original
         p = Path(image_path)
         preprocessed_path = str(p.parent / f"{p.stem}_preprocessed{p.suffix}")
         img.save(preprocessed_path)
@@ -41,14 +62,12 @@ class OCRService:
     # ------------------------------------------------------------------
     # Text extraction
     # ------------------------------------------------------------------
-    @staticmethod
-    def extract_text(image_path: str) -> str:
-        """Run Tesseract OCR on *image_path* and return the full text."""
-        import pytesseract
-        from PIL import Image
-
-        img = Image.open(image_path)
-        text = pytesseract.image_to_string(img)
+    @classmethod
+    def extract_text(cls, image_path: str) -> str:
+        """Run EasyOCR on *image_path* and return the full text."""
+        reader = cls._get_reader()
+        results = reader.readtext(image_path, detail=0)
+        text = "\n".join(results)
         logger.info("Extracted %d characters from %s", len(text), image_path)
         return text
 
@@ -60,33 +79,105 @@ class OCRService:
         """
         Extract the most likely total dollar amount from receipt text.
 
-        Returns the largest matched amount (grand total is usually last).
+        Looks for patterns like ``$12.99``, ``12.99``, ``1,234.56``,
+        or amounts prefixed by ``total:``.  Returns the **largest** match
+        (receipts usually show line items then a grand total).
         """
         if not text:
             return None
 
         amounts = []
 
+        # Pattern: optional $ sign, digits with optional comma grouping, decimal
         general_pattern = r"\$?\s?(\d{1,3}(?:,\d{3})*\.\d{2})"
         for match in re.finditer(general_pattern, text):
-            amounts.append(float(match.group(1).replace(",", "")))
+            raw = match.group(1).replace(",", "")
+            amounts.append(float(raw))
 
+        # Pattern: "total" keyword followed by an amount (case-insensitive)
         total_pattern = r"(?i)total\s*:?\s*\$?\s?(\d{1,3}(?:,\d{3})*\.\d{2})"
         for match in re.finditer(total_pattern, text):
-            amounts.append(float(match.group(1).replace(",", "")))
+            raw = match.group(1).replace(",", "")
+            amounts.append(float(raw))
 
-        return max(amounts) if amounts else None
+        if not amounts:
+            return None
+
+        return max(amounts)
 
     # ------------------------------------------------------------------
     # Merchant extraction
     # ------------------------------------------------------------------
     @staticmethod
     def extract_merchant(text: str) -> Optional[str]:
-        """Heuristic: the first non-empty line is usually the merchant name."""
+        """
+        Heuristic: the first non-empty line of a receipt is usually the
+        merchant / store name.
+        """
         if not text:
             return None
         for line in text.splitlines():
             stripped = line.strip()
             if stripped:
                 return stripped
+        return None
+
+    # ------------------------------------------------------------------
+    # Date extraction  ← NEW
+    # ------------------------------------------------------------------
+    @staticmethod
+    def extract_date(text: str) -> Optional[str]:
+        """
+        Extract a date from receipt text and return it as 'YYYY-MM-DD'.
+
+        Handles common receipt formats:
+          YYYY-MM-DD, YYYY/MM/DD
+          MM/DD/YYYY, MM-DD-YYYY
+          Month DD, YYYY  (e.g. "Jan 05, 2024" or "January 5 2024")
+          DD Month YYYY   (e.g. "05 Jan 2024")
+        """
+        if not text:
+            return None
+
+        today = datetime.date.today()
+
+        # (pattern, format_type)
+        patterns = [
+            # YYYY-MM-DD or YYYY/MM/DD
+            (r"\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b", "iso"),
+            # MM/DD/YYYY or MM-DD-YYYY
+            (r"\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b", "mdy"),
+            # Month DD, YYYY  e.g. "Jan 05, 2024" or "January 5 2024"
+            (r"\b([A-Za-z]{3,9})\s+(\d{1,2})[,\s]+(\d{4})\b", "named_mdy"),
+            # DD Month YYYY  e.g. "05 Jan 2024"
+            (r"\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b", "named_dmy"),
+        ]
+
+        for pattern, fmt in patterns:
+            match = re.search(pattern, text)
+            if not match:
+                continue
+            try:
+                g = match.groups()
+                if fmt == "iso":
+                    parsed = datetime.datetime(int(g[0]), int(g[1]), int(g[2]))
+                elif fmt == "mdy":
+                    parsed = datetime.datetime(int(g[2]), int(g[0]), int(g[1]))
+                elif fmt == "named_mdy":
+                    parsed = datetime.datetime.strptime(
+                        f"{g[0]} {int(g[1]):02d} {g[2]}", "%B %d %Y"
+                    )
+                else:  # named_dmy
+                    parsed = datetime.datetime.strptime(
+                        f"{int(g[0]):02d} {g[1]} {g[2]}", "%d %B %Y"
+                    )
+
+                # Sanity check: reject obviously wrong years
+                if not (2000 <= parsed.year <= today.year):
+                    continue
+
+                return parsed.strftime("%Y-%m-%d")
+            except (ValueError, OverflowError):
+                continue
+
         return None
