@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { getExpenses, getCategories, getAnalyticsSummary } from '@/lib/api';
-import { Expense, Category, AnalyticsSummary } from '@/types';
+import { getExpenses, getCategories, getAnalyticsSummary, getForecast } from '@/lib/api';
+import { Expense, Category, AnalyticsSummary, Prediction } from '@/types';
 import Navbar from '@/components/Navbar';
 import ReceiptUpload from '@/components/ReceiptUpload';
 import ExpenseTable from '@/components/ExpenseTable';
@@ -15,6 +15,10 @@ export default function DashboardPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+  
+  // undefined = not yet fetched, null = cold start (insufficient data)
+  const [forecast, setForecast] = useState<Prediction | null | undefined>(undefined);
+  
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -22,6 +26,7 @@ export default function DashboardPage() {
 
   const fetchData = useCallback(async (page: number = 1) => {
     try {
+      // 1. Fetch the vital, guaranteed data first
       const [expensesData, categoriesData, summaryData] = await Promise.all([
         getExpenses({ page, limit }),
         getCategories(),
@@ -32,6 +37,16 @@ export default function DashboardPage() {
       setTotalPages(Math.ceil(expensesData.total / limit));
       setCategories(categoriesData);
       setSummary(summaryData);
+      
+      // Fetch forecast separately so a cold-start / model failure doesn't block the page.
+      try {
+        const predictionData = await getForecast();
+        setForecast(predictionData); // null = cold start, Prediction = ready
+      } catch (predErr) {
+        console.error("Forecast failed to load:", predErr);
+        setForecast(null);
+      }
+      
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
     } finally {
@@ -96,6 +111,37 @@ export default function DashboardPage() {
           {/* Quick Stats */}
           <div className="mb-8">
             <QuickStats summary={summary} loading={loading} />
+          </div>
+          
+          {/* Forecast Panel */}
+          <div className="mb-8 p-6 bg-slate-800 rounded-lg border border-slate-700">
+            <h2 className="text-xl font-semibold text-white mb-4">Spending Forecast</h2>
+            {forecast === undefined ? (
+              <p className="text-slate-400">Loading forecast...</p>
+            ) : !forecast ? (
+              <p className="text-slate-400">
+                Upload and process more receipts to unlock your forecast.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-700 rounded-md">
+                  <p className="text-sm text-slate-400">Predicted Next Month Spend</p>
+                  <p className="text-2xl font-bold text-white">
+                    ${forecast.predicted_spend.toFixed(2)}
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-700 rounded-md">
+                  <p className="text-sm text-slate-400">Budget Burnout Risk</p>
+                  <p
+                    className={`text-2xl font-bold ${
+                      forecast.burnout_probability > 0.8 ? 'text-red-400' : 'text-emerald-400'
+                    }`}
+                  >
+                    {(forecast.burnout_probability * 100).toFixed(0)}%
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Main Content - 3 panel layout */}
