@@ -1,5 +1,6 @@
 import os
 import sys
+import platform
 
 # Ensure the backend directory is on the Python path so that
 # worker subprocesses can import top-level packages like 'services'.
@@ -38,6 +39,10 @@ celery_app.conf.update(
     enable_utc=True,
     # Prefetch — one task at a time for fair distribution
     worker_prefetch_multiplier=1,
+    # PyTorch (transformers/NLP) is not fork-safe on macOS arm64. The solo pool
+    # runs tasks in-process without forking, avoiding SIGSEGV on Apple Silicon.
+    # Linux/production keeps the default prefork pool for real concurrency.
+    **( {"worker_pool": "solo"} if platform.system() == "Darwin" else {} ),
 )
 
 celery_app.autodiscover_tasks(["tasks"], related_name="receipt_tasks")
