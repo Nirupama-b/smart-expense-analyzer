@@ -29,6 +29,34 @@ def _get_admin_supabase():
     return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
 
+def _ensure_user_profile(admin_client, user_id: str) -> None:
+    """Upsert a public.users row for user_id if it doesn't exist yet.
+
+    The trigger in migration 002 only fires on new sign-ups. Users who
+    registered before the migration was applied (or via OAuth) may have a
+    valid auth.users row but no public.users row, causing FK violations on
+    expense inserts. This helper heals that gap on first use.
+    """
+    try:
+        existing = admin_client.table("users").select("id").eq("id", user_id).execute()
+        if existing.data:
+            return
+
+        auth_user = admin_client.auth.admin.get_user_by_id(user_id)
+        email = (auth_user.user.email or "") if auth_user.user else ""
+        name = (
+            (auth_user.user.user_metadata or {}).get("name")
+            or email.split("@")[0]
+        ) if auth_user.user else ""
+
+        admin_client.table("users").insert(
+            {"id": user_id, "email": email, "name": name}
+        ).execute()
+        logger.info("Auto-created public.users profile for %s", user_id)
+    except Exception as exc:
+        logger.warning("Could not ensure user profile for %s: %s", user_id, exc)
+
+
 # ---------------------------------------------------------------------------
 # POST /api/receipts/upload
 # ---------------------------------------------------------------------------
@@ -73,6 +101,11 @@ async def upload_receipt(
 
     # --- create pending expense in Supabase ---
     supabase = _get_admin_supabase()
+
+    # Ensure the public.users profile exists before inserting the expense.
+    # Users who signed up before migration 002 was applied won't have a row.
+    _ensure_user_profile(supabase, user_id)
+
     expense_data = {
         "user_id": user_id,
         "amount": 0,
