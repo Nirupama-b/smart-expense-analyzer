@@ -60,56 +60,90 @@ def process_receipt(self, image_path: str, expense_id: str):
     to avoid deadlocks from blocking on sub-task results.
     """
     try:
-        from services.nlp_service import NLPCategorizationService
-        from services.ocr_service import OCRService
-
-        # Mark as processing for the entire pipeline
         _update_status(expense_id, "processing")
 
-        # Stage 1 — Image pre-processing
-        processed_path = OCRService.preprocess_image(image_path)
-
-        # Stage 2 — OCR text extraction
-        text = OCRService.extract_text(processed_path)
-        if not text or not text.strip():
-            text = "Manual Entry Required"
-
-        # Stage 3 — NLP categorization + field extraction
-        category, confidence = NLPCategorizationService.categorize(text)
-        amount = OCRService.extract_amount(text)
-        merchant = OCRService.extract_merchant(text)
-
-        final_status = "processed" if confidence >= 0.5 else "manual_review"
-
-        # Look up category_id from categories table
-        category_id = None
+        # Try to import OCR / NLP — these depend on easyocr, torch, and
+        # transformers which are large optional installs.  If they are absent,
+        # fall back to manual-entry mode so the expense record is still usable.
         try:
-            cat_result = _get_supabase().table("categories").select("id").eq("name", category).execute()
-            if cat_result.data:
-                category_id = cat_result.data[0]["id"]
-        except Exception:
-            logger.warning("Could not look up category_id for %s", category)
+            from services.nlp_service import NLPCategorizationService
+            from services.ocr_service import OCRService
+            ocr_available = True
+        except ImportError as imp_err:
+            logger.warning(
+                "OCR/NLP dependencies not installed (%s); "
+                "expense %s will require manual entry.",
+                imp_err,
+                expense_id,
+            )
+            ocr_available = False
 
-        update_fields = {
-            "raw_text": text,
-        }
-        if category_id is not None:
-            update_fields["category_id"] = category_id
-        if amount is not None:
-            update_fields["amount"] = amount
-        if merchant:
-            update_fields["merchant"] = merchant
+        if ocr_available:
+            # Stage 1 — Image pre-processing
+            processed_path = OCRService.preprocess_image(image_path)
 
-        _update_status(expense_id, final_status, extra=update_fields)
+            # Stage 2 — OCR text extraction
+            text = OCRService.extract_text(processed_path)
+            if not text or not text.strip():
+                text = "Manual Entry Required"
 
-        return {
-            "expense_id": expense_id,
-            "category": category,
-            "confidence": confidence,
-            "amount": amount,
-            "merchant": merchant,
-            "status": final_status,
-        }
+            # Stage 3 — NLP categorization + field extraction
+            category, confidence = NLPCategorizationService.categorize(text)
+            amount = OCRService.extract_amount(text)
+            merchant = OCRService.extract_merchant(text)
+
+            final_status = "processed" if confidence >= 0.5 else "manual_review"
+
+            # Look up category_id from categories table
+            category_id = None
+            try:
+                cat_result = (
+                    _get_supabase()
+                    .table("categories")
+                    .select("id")
+                    .eq("name", category)
+                    .execute()
+                )
+                if cat_result.data:
+                    category_id = cat_result.data[0]["id"]
+            except Exception:
+                logger.warning("Could not look up category_id for %s", category)
+
+            update_fields: dict = {"raw_text": text}
+            if category_id is not None:
+                update_fields["category_id"] = category_id
+            if amount is not None:
+                update_fields["amount"] = amount
+            if merchant:
+                update_fields["merchant"] = merchant
+
+            _update_status(expense_id, final_status, extra=update_fields)
+
+            return {
+                "expense_id": expense_id,
+                "category": category,
+                "confidence": confidence,
+                "amount": amount,
+                "merchant": merchant,
+                "status": final_status,
+            }
+        else:
+            # OCR unavailable — mark for manual entry so the user can fill
+            # in details themselves rather than seeing a silent failure.
+            _update_status(
+                expense_id,
+                "manual_review",
+                extra={"raw_text": "OCR unavailable — please enter details manually"},
+            )
+            return {
+                "expense_id": expense_id,
+                "category": None,
+                "confidence": 0.0,
+                "amount": None,
+                "merchant": None,
+                "status": "manual_review",
+            }
+
     except Exception as exc:
         logger.exception("process_receipt failed for expense %s", expense_id)
         _update_status(expense_id, "failed")
