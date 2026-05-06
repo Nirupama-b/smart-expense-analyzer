@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 import pytest
 import numpy as np
-from services.forecasting import ForecastingService, MIN_EXPENSES_FOR_FORECAST
+from services.forecasting import ForecastingService, MIN_MONTHS_FOR_FORECAST
 
 def _mock_db(expenses, budget=500.0):
     mock = MagicMock()
@@ -16,8 +16,11 @@ def _expenses(n):
     months = ["2025-10-01","2025-11-01","2025-12-01","2026-01-01","2026-02-01","2026-03-01"]
     return [{"amount": 100.0 + i, "date": months[i % len(months)], "category_id": 1} for i in range(n)]
 
+def _same_month_expenses(n):
+    return [{"amount": 100.0 + i, "date": "2025-10-01", "category_id": 1} for i in range(n)]
+
 def test_cold_start_too_few():
-    r = ForecastingService(_mock_db(_expenses(3))).get_prediction_for_user("u1")
+    r = ForecastingService(_mock_db(_same_month_expenses(3))).get_prediction_for_user("u1")
     assert r["cold_start"] is True and r["predicted_spend"] is None
 
 def test_cold_start_zero():
@@ -25,7 +28,7 @@ def test_cold_start_zero():
     assert r["cold_start"] is True
 
 def test_cold_start_one_below_threshold():
-    r = ForecastingService(_mock_db(_expenses(MIN_EXPENSES_FOR_FORECAST - 1))).get_prediction_for_user("u1")
+    r = ForecastingService(_mock_db(_expenses(MIN_MONTHS_FOR_FORECAST - 1))).get_prediction_for_user("u1")
     assert r["cold_start"] is True
 
 def test_forecast_runs_with_enough_data():
