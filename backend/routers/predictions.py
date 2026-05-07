@@ -5,7 +5,9 @@ canonical "after 10 receipts predict next month" path. Mounted at
 `/api/predictions` to match every other router under `/api`.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import create_client
 
 from config import get_settings
@@ -21,10 +23,13 @@ def _get_admin_supabase():
 
 
 @router.get("/me", summary="Get this month's spending forecast")
-def get_my_prediction(user_id: str = Depends(get_current_user)):
+def get_my_prediction(
+    budget: Optional[float] = Query(None, description="Override monthly budget for burnout calculation"),
+    user_id: str = Depends(get_current_user),
+):
     supabase = _get_admin_supabase()
     try:
-        return ForecastingService(supabase).get_prediction_for_user(user_id)
+        return ForecastingService(supabase).get_prediction_for_user(user_id, budget=budget)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

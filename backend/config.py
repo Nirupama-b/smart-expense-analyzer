@@ -1,8 +1,11 @@
+import os
 from functools import lru_cache
 from typing import List
 
 from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
+
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class Settings(BaseSettings):
@@ -16,7 +19,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
-    UPLOAD_DIR: str = "./uploads"
+    UPLOAD_DIR: str = os.path.join(_BACKEND_DIR, "uploads")
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001"]
 
 

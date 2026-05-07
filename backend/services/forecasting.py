@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import date, datetime
 import logging
+from typing import Optional
 import numpy as np
 import pandas as pd
 from supabase import Client
@@ -16,7 +17,7 @@ class ForecastingService:
     def __init__(self, supabase: Client):
         self.db = supabase
 
-    def get_prediction_for_user(self, user_id: str) -> dict:
+    def get_prediction_for_user(self, user_id: str, budget: Optional[float] = None) -> dict:
         expenses = self._fetch_expenses(user_id)
         if not expenses:
             return self._cold_start_response(0, 0)
@@ -26,7 +27,7 @@ class ForecastingService:
             return self._cold_start_response(len(expenses), distinct_months)
         monthly = self._aggregate_monthly(df)
         predicted_spend     = self._run_model(monthly)
-        budget              = self._fetch_budget(user_id)
+        budget              = budget if budget is not None else self._fetch_budget(user_id)
         burnout_probability = self._burnout_prob(predicted_spend, budget)
         result = {
             "user_id":             user_id,
