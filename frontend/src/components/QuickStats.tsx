@@ -5,9 +5,10 @@ import { AnalyticsSummary } from '@/types';
 interface QuickStatsProps {
   summary: AnalyticsSummary | null;
   loading?: boolean;
+  hasBudget?: boolean;
 }
 
-export default function QuickStats({ summary, loading }: QuickStatsProps) {
+export default function QuickStats({ summary, loading, hasBudget = false }: QuickStatsProps) {
   if (loading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -24,12 +25,12 @@ export default function QuickStats({ summary, loading }: QuickStatsProps) {
   const totalSpend = summary?.total_spend ?? 0;
   const topCategory = summary?.top_category ?? 'N/A';
   const topCategoryAmount = summary?.top_category_amount ?? 0;
-  const budgetUtilization = summary?.budget_utilization ?? 0;
+  const budgetUtilization = summary?.budget_utilization ?? null;
 
   const utilizationColor =
-    budgetUtilization > 90
+    budgetUtilization !== null && budgetUtilization > 90
       ? 'bg-red-500'
-      : budgetUtilization > 70
+      : budgetUtilization !== null && budgetUtilization > 70
       ? 'bg-yellow-500'
       : 'bg-green-500';
 
@@ -82,13 +83,22 @@ export default function QuickStats({ summary, loading }: QuickStatsProps) {
             </svg>
           </div>
         </div>
-        <p className="text-2xl font-bold text-white">{budgetUtilization.toFixed(0)}%</p>
-        <div className="mt-2 w-full bg-slate-800 rounded-full h-2">
-          <div
-            className={`${utilizationColor} h-2 rounded-full transition-all duration-500`}
-            style={{ width: `${Math.min(budgetUtilization, 100)}%` }}
-          />
-        </div>
+        {hasBudget && budgetUtilization !== null ? (
+          <>
+            <p className="text-2xl font-bold text-white">{budgetUtilization.toFixed(0)}%</p>
+            <div className="mt-2 w-full bg-slate-800 rounded-full h-2">
+              <div
+                className={`${utilizationColor} h-2 rounded-full transition-all duration-500`}
+                style={{ width: `${Math.min(budgetUtilization, 100)}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-2xl font-bold text-slate-500">—</p>
+            <p className="text-xs text-slate-500 mt-1">Set a budget to track utilization</p>
+          </>
+        )}
       </div>
     </div>
   );
