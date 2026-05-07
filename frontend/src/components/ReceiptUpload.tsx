@@ -22,6 +22,10 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
   const [currentStage, setCurrentStage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null);
+
+  // abortRef prevents setState calls on an unmounted component.
+  // The cleanup in useEffect sets it to true when the component unmounts,
+  // and each poll() checks it before updating state or scheduling the next tick.
   const abortRef = useRef(false);
 
   useEffect(() => {
@@ -30,9 +34,11 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
     };
   }, []);
 
+  // Polls GET /api/receipts/status/{taskId} every 2 seconds until the Celery
+  // task reaches a terminal state (completed | failed) or the 60-attempt limit.
   const pollTaskStatus = useCallback(async (taskId: string) => {
     abortRef.current = false;
-    const maxAttempts = 60;
+    const maxAttempts = 60; // 60 × 2s = 2-minute timeout
     let attempts = 0;
 
     const poll = async () => {
@@ -51,17 +57,17 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
         setTaskStatus(status);
 
         if (status.status === 'processing') {
-          setCurrentStage(2);
+          setCurrentStage(2); // advance UI to "Extracting text with OCR..."
         }
 
         if (status.status === 'completed') {
-          setCurrentStage(4);
+          setCurrentStage(4); // show "Done!" briefly before resetting
           setTimeout(() => {
             if (abortRef.current) return;
             setIsUploading(false);
             setCurrentStage(0);
             setTaskStatus(null);
-            onUploadComplete?.();
+            onUploadComplete?.(); // trigger parent to refresh expense list
           }, 1500);
           return;
         }
@@ -75,6 +81,7 @@ export default function ReceiptUpload({ onUploadComplete }: ReceiptUploadProps) 
         attempts++;
         if (!abortRef.current) setTimeout(poll, 2000);
       } catch {
+        // Network hiccup — back off slightly and retry
         attempts++;
         if (!abortRef.current) setTimeout(poll, 3000);
       }

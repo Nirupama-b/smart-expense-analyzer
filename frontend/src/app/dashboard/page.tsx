@@ -93,6 +93,8 @@ export default function DashboardPage() {
   const handlePageChange = (page: number) => setCurrentPage(page);
   const handleUpdate = () => fetchData(currentPage);
 
+  // Persists budget to localStorage and re-fetches so QuickStats and ForecastGauge
+  // immediately reflect the new budget without requiring a page reload.
   const saveBudget = () => {
     const val = parseFloat(budgetInput);
     if (!isNaN(val) && val > 0) {

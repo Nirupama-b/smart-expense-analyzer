@@ -40,15 +40,19 @@ export default function AnalyticsPage() {
   const fetchData = useCallback(async (filters: ExpenseFilters = {}) => {
     setLoading(true);
     try {
+      // Strip empty strings so the backend treats them as "no filter" rather than
+      // matching the literal empty string, which would return zero results.
       const params: ExpenseFilters = { ...filters };
       if (params.start_date === '') delete params.start_date;
       if (params.end_date === '') delete params.end_date;
       if (params.category === '') delete params.category;
 
+      // Read budget directly from localStorage on each call to avoid stale closure values.
       const storedBudget = parseFloat(localStorage.getItem('monthly_budget') || '0') || 0;
 
-      // Summary gets budget; category-breakdown gets dates only (not category,
-      // so the pie always shows the full split for the selected date range)
+      // Summary receives the category filter so the stat cards reflect the selected slice.
+      // Category-breakdown intentionally excludes the category filter: a single-category
+      // doughnut is 100% one slice and conveys no useful breakdown — date range only.
       const summaryParams = storedBudget > 0 ? { ...params, budget: storedBudget } : params;
       const breakdownParams: ExpenseFilters = { start_date: params.start_date, end_date: params.end_date };
 
