@@ -45,12 +45,19 @@ export default function AnalyticsPage() {
       if (params.end_date === '') delete params.end_date;
       if (params.category === '') delete params.category;
 
+      const storedBudget = parseFloat(localStorage.getItem('monthly_budget') || '0') || 0;
+
+      // Summary gets budget; category-breakdown gets dates only (not category,
+      // so the pie always shows the full split for the selected date range)
+      const summaryParams = storedBudget > 0 ? { ...params, budget: storedBudget } : params;
+      const breakdownParams: ExpenseFilters = { start_date: params.start_date, end_date: params.end_date };
+
       const [summaryData, spendingResult, categoryResult, forecastResult, categoriesResult] =
         await Promise.all([
-          getAnalyticsSummary(params),
+          getAnalyticsSummary(summaryParams),
           getSpendingOverTime(params),
-          getCategoryBreakdown(params),
-          getForecast().catch(() => null),
+          getCategoryBreakdown(breakdownParams),
+          getForecast(storedBudget > 0 ? storedBudget : undefined).catch(() => null),
           getCategories(),
         ]);
 
@@ -242,7 +249,9 @@ export default function AnalyticsPage() {
                       <div>
                         <p className="text-sm text-white font-medium">Budget Status</p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          You&apos;ve used {(summary.budget_utilization ?? 0).toFixed(0)}% of your monthly budget
+                          {summary.budget_utilization != null
+                            ? `You've used ${summary.budget_utilization.toFixed(0)}% of your monthly budget`
+                            : 'Set a budget in the Dashboard to track utilization'}
                         </p>
                       </div>
                     </div>
