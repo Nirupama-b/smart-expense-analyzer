@@ -51,9 +51,10 @@ export async function getCategoryBreakdown(
  * Returns null when the backend reports `cold_start: true` (expenses span
  * fewer than 2 distinct months).
  */
-export async function getForecast(): Promise<Prediction | null> {
+export async function getForecast(budget?: number): Promise<Prediction | null> {
   const raw = await request<PredictionApiResponse>('/api/predictions/me', {
     method: 'GET',
+    params: budget && budget > 0 ? { budget } : {},
   });
   if (
     !raw ||

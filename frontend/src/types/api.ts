@@ -38,6 +38,7 @@ export interface ExpenseFilters {
   limit?: number;
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
+  budget?: number;
 }
 
 export interface MonthlySpending {
