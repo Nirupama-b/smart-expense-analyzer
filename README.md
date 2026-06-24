@@ -30,6 +30,10 @@
 * **Monthly Budget Tracking:** Users set a budget in the dashboard; utilization percentage and burnout probability update across the entire application.
 * **Natural Language Query:** Chat interface answers questions about totals, breakdowns, averages, and recent transactions via a rule-based engine with a LangChain/DistilGPT-2 fallback.
 
+## 🏗️ Architecture
+
+![System Architecture](docs/architecture.png)
+
 ## 🛠️ Technology Stack
 
 | Layer | Technology |
